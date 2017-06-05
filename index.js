@@ -57,7 +57,12 @@ function pushSubResources(subResources, response) {
     subResources.map(readResource)
   ).then(resources => {
     resources.forEach(r => {
-      const stream = response.push(r.resource, {});
+      const contentType = guessContentType(r.resource);
+      const stream = response.push(r.resource, {
+        response: {
+          'Content-Type': contentType
+        }
+      });
       stream.on('error', console.log);
       stream.end(r.data);
     });
@@ -79,6 +84,13 @@ function readResource(resource) {
       });
     });
   });
+}
+
+function guessContentType(resource) {
+  if (resource.endsWith('jpg')) return 'image/jpeg';
+  if (resource.endsWith('css')) return 'text/css';
+  if (resource.endsWith('js')) return 'application/javascript';
+  return 'text/plain';
 }
 
 function getResourceName(request) {
