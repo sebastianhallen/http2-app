@@ -1,14 +1,92 @@
 'use strict';
 const express = require('express');
+const spdy = require('spdy');
+const fs = require('fs');
 const path = require('path');
+const url = require('url');
 const port = process.env.PORT || 1337;
+const staticContentDirectory = 'static';
 const app = express();
+const options = {
+    key: fs.readFileSync(__dirname + '/server.key'),
+    cert:  fs.readFileSync(__dirname + '/server.crt')
+}
 
-app.get('/', (request, response) => {
-  response.sendFile(path.join(__dirname, 'static', 'index.html'));
+const staticContent = [
+    `/${staticContentDirectory}/css/style0.css`,
+    `/${staticContentDirectory}/css/style1.css`,
+    `/${staticContentDirectory}/css/style2.css`,
+    `/${staticContentDirectory}/js/js0.js`,
+    `/${staticContentDirectory}/js/js1.js`,
+    `/${staticContentDirectory}/js/js2.js`,
+    `/${staticContentDirectory}/images/img0.jpg`,
+    `/${staticContentDirectory}/images/img1.jpg`,
+    `/${staticContentDirectory}/images/img2.jpg`
+  ];
+const files = {};
+files['index.html'] = staticContent;
+
+app.use((request, response, next) => {
+  const resourceName = getResourceName(request);
+
+  console.log('Request for: ', resourceName);
+
+  const subResources = files[resourceName];
+
+  return ((!!subResources)
+    ? pushSubResources(subResources, response)
+    : Promise.resolve()
+  ).then(() => {
+    response.writeHead(200);
+    return readResource(`${staticContentDirectory}/${resourceName}`).then(r => response.end(r.data));
+  }).catch(console.log);
 });
 
-app.use('/static', express.static(path.join(__dirname, 'static')));
+spdy
+  .createServer(options, app)
+  .listen(port, (error) => {
+    if (error) {
+      console.error(error);
+      return process.exit(1);
+    }
+    console.log(`server running on port: ${port}`);
+  });
 
-app.listen(port);
-console.log(`server running on port: ${port}`);
+function pushSubResources(subResources, response) {
+  return Promise.all(
+    subResources.map(readResource)
+  ).then(resources => {
+    resources.forEach(r => {
+      const stream = response.push(r.resource, {});
+      stream.on('error', console.log);
+      stream.end(r.data);
+    });
+  });
+}
+
+function readResource(resource) {
+  const resourcePath = path.join(__dirname, resource);
+
+  return new Promise((resolve, reject) => {
+    fs.readFile(resourcePath, (error, data) => {
+      if (error) {
+        return reject(error);
+      }
+
+      return resolve({
+        'resource': resource,
+        'data': data
+      });
+    });
+  });
+}
+
+function getResourceName(request) {
+  const resourceName = url.parse(request.url).pathname.substr(1);
+
+  if (resourceName === '' || resourceName === '/') {
+    return 'index.html';
+  }
+
+  return resourceName;
+}
