@@ -33,12 +33,10 @@ app.use((request, response, next) => {
 
   const subResources = files[resourceName];
 
-  return ((!!subResources)
-    ? pushSubResources(subResources, response)
-    : Promise.resolve()
-  ).then(() => {
-    response.writeHead(200);
-    return readResource(`${staticContentDirectory}/${resourceName}`).then(r => response.end(r.data));
+  return pushSubResources(subResources, response)
+    .then(() => {
+      response.writeHead(200);
+      return readResource(`${staticContentDirectory}/${resourceName}`).then(r => response.end(r.data));
   }).catch(console.log);
 });
 
@@ -53,24 +51,27 @@ spdy
   });
 
 function pushSubResources(subResources, response) {
-  return Promise.all(
-    subResources.map(readResource)
-  ).then(resources => {
-    resources.forEach(r => {
-      const contentType = guessContentType(r.resource);
-      const stream = response.push(r.resource, {
-        response: {
-          'Content-Type': contentType
-        }
+  if (subResources) {
+    return Promise.all(subResources.map(readResource))
+    .then(resources => {
+      resources.forEach(resource => {
+        const contentType = guessContentType(resource.name);
+        const stream = response.push(resource.name, {
+          response: {
+            'Content-Type': contentType
+          }
+        });
+        stream.on('error', console.log);
+        stream.end(resource.data);
       });
-      stream.on('error', console.log);
-      stream.end(r.data);
     });
-  });
+  }
+
+  return Promise.resolve();
 }
 
-function readResource(resource) {
-  const resourcePath = path.join(__dirname, resource);
+function readResource(resourceName) {
+  const resourcePath = path.join(__dirname, resourceName);
 
   return new Promise((resolve, reject) => {
     fs.readFile(resourcePath, (error, data) => {
@@ -79,7 +80,7 @@ function readResource(resource) {
       }
 
       return resolve({
-        'resource': resource,
+        'name': resourceName,
         'data': data
       });
     });
